@@ -26,6 +26,7 @@
       <span class="brand-tag">collection &amp; flips</span>
     </div>
     <input id="search" class="search" type="search" placeholder="Search name, set, number" aria-label="Search">
+    <button id="accountBtn" class="btn quiet acct" type="button" hidden>Sign in to sync</button>
     <button id="addBtn" class="btn accent" type="button">Add item</button>
   </header>
 
@@ -178,10 +179,62 @@
     </form>
   </dialog>
 
+  <!-- Sign in / cloud sync -->
+  <dialog id="authDialog">
+    <form id="authForm" method="dialog">
+      <div id="authOut">
+        <h2>Sign in to sync</h2>
+        <p class="muted">Use the same account on your phone and your computer and your items stay in step.
+          Anything already on this device is merged into your account when you sign in.</p>
+        <label>Email
+          <input id="authEmail" type="email" autocomplete="username" required>
+        </label>
+        <label>Password
+          <input id="authPass" type="password" autocomplete="current-password" minlength="6" required>
+        </label>
+        <p class="form-error" id="authMsg" hidden></p>
+        <div class="dialog-actions between">
+          <button type="button" id="authForgot" class="link">Forgot password?</button>
+          <span>
+            <button type="button" id="authSignUp" class="btn quiet">Create account</button>
+            <button type="submit" id="authSignIn" class="btn accent">Sign in</button>
+          </span>
+        </div>
+      </div>
+
+      <div id="authIn" hidden>
+        <h2>Cloud sync</h2>
+        <p>Signed in as <b id="authWho"></b></p>
+        <p id="authStatus" class="muted"></p>
+        <p class="form-error" id="authInMsg" hidden></p>
+        <div class="dialog-actions between">
+          <button type="button" id="authSignOut" class="btn quiet">Sign out</button>
+          <span>
+            <button type="button" class="btn quiet" data-close>Close</button>
+            <button type="button" id="authSyncNow" class="btn accent">Sync now</button>
+          </span>
+        </div>
+      </div>
+
+      <div id="authReset" hidden>
+        <h2>Choose a new password</h2>
+        <label>New password
+          <input id="authNewPass" type="password" autocomplete="new-password" minlength="6">
+        </label>
+        <p class="form-error" id="authResetMsg" hidden></p>
+        <div class="dialog-actions">
+          <button type="button" id="authSaveNew" class="btn accent">Save password</button>
+        </div>
+      </div>
+    </form>
+  </dialog>
+
   <dialog id="photoDialog" class="photo-dialog">
     <img id="photoBig" alt="">
   </dialog>
 
+  <script src="config.js"></script>
   <script src="app.js"></script>
+  <script src="sync.js"></script>
 </body>
 </html>

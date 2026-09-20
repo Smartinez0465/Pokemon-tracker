@@ -1,12 +1,14 @@
 "use strict";
 
 // Bump CACHE when you want every device to drop old cached files.
-const CACHE = "pokemon-tracker-v6";
+const CACHE = "pokemon-tracker-v8";
 const ASSETS = [
   "./",
   "index.html",
   "style.css",
   "app.js",
+  "config.js",
+  "sync.js",
   "manifest.webmanifest",
   "icons/icon-192.png",
   "icons/icon-512.png",
@@ -36,10 +38,17 @@ self.addEventListener("fetch", (e) => {
   e.respondWith(
     fetch(e.request)
       .then((res) => {
-        const copy = res.clone();
-        caches.open(CACHE).then((c) => c.put(e.request, copy));
+        if (res.ok) {
+          const copy = res.clone();
+          caches.open(CACHE).then((c) => c.put(e.request, copy));
+        }
         return res;
       })
-      .catch(() => caches.match(e.request).then((hit) => hit || caches.match("index.html")))
+      .catch(async () => {
+        const hit = await caches.match(e.request);
+        if (hit) return hit;
+        // only a page visit falls back to the app shell; anything else fails honestly
+        return e.request.mode === "navigate" ? caches.match("index.html") : Response.error();
+      })
   );
 });

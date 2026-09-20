@@ -12,27 +12,68 @@ const STORAGE_KEY = "pokemon-inventory-v1";
  * left shows in Inventory; every sale shows as its own row in Sold.
  */
 
-let items = loadItems();
+/*
+ * Sync (see sync.js): every item carries `updatedAt` (ms), stamped by touch() whenever it changes.
+ * Deleting an item leaves a tombstone { id, updatedAt } so other devices learn it was deleted.
+ */
+const DELETED_KEY = "card-ledger-deleted";
+let items = loadJson(STORAGE_KEY);
+let tombstones = loadJson(DELETED_KEY);
 const ui = { search: "", tab: "inventory", sort: "newest", expanded: new Set() };
 
 /* ---------- storage ---------- */
 
-function loadItems() {
+function loadJson(key) {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    const parsed = raw ? JSON.parse(raw) : [];
+    const parsed = JSON.parse(localStorage.getItem(key) || "[]");
     return Array.isArray(parsed) ? parsed : [];
   } catch {
     return [];
   }
 }
 
-function saveItems() {
+// `quiet` is for changes that arrived *from* the cloud, which shouldn't trigger another upload.
+function saveItems({ quiet = false } = {}) {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
+    localStorage.setItem(DELETED_KEY, JSON.stringify(tombstones));
   } catch {
     alert("Could not save: this browser's storage may be full (photos take the most room). Use \"Backup\" to keep your data, then remove some photos.");
   }
+  if (!quiet && window.ledgerSync) window.ledgerSync.changed();
+}
+
+const touch = (item) => { item.updatedAt = Date.now(); return item; };
+
+function forgetItem(id) {
+  items = items.filter((i) => i.id !== id);
+  tombstones = tombstones.filter((t) => t.id !== id).concat({ id, updatedAt: Date.now() });
+}
+
+// One place that turns anything (a backup file, a row from the cloud) into a clean item.
+function normalizeItem(i) {
+  return {
+    id: i.id || uid(),
+    name: String(i.name ?? ""),
+    type: i.type || "Other",
+    set: i.set || "",
+    number: i.number || "",
+    photo: okPhoto(i.photo) ? i.photo : "",
+    qty: Number(i.qty) || 1,
+    unitCost: Number(i.unitCost) || 0,
+    buyDate: i.buyDate || today(),
+    boughtFrom: i.boughtFrom || "",
+    notes: i.notes || "",
+    updatedAt: Number(i.updatedAt) || 0,
+    sales: (Array.isArray(i.sales) ? i.sales : []).map((s) => ({
+      id: s.id || uid(),
+      date: s.date || today(),
+      qty: Number(s.qty) || 0,
+      unitPrice: Number(s.unitPrice) || 0,
+      fees: Number(s.fees) || 0,
+      platform: s.platform || "",
+    })),
+  };
 }
 
 /* ---------- helpers ---------- */
@@ -342,8 +383,8 @@ itemForm.addEventListener("submit", (e) => {
     notes: f.notes.value.trim(),
   };
 
-  if (existing) Object.assign(existing, data);
-  else items.push({ id: uid(), ...data, sales: [] });
+  if (existing) touch(Object.assign(existing, data));
+  else items.push(touch({ id: uid(), ...data, sales: [] }));
 
   saveItems();
   itemDialog.close();
@@ -891,6 +932,7 @@ sellForm.addEventListener("submit", (e) => {
   }
 
   item.sales.push({ id: uid(), date: f.date.value, qty, unitPrice, fees, platform: f.platform.value.trim() });
+  touch(item);
   saveItems();
   sellDialog.close();
   render();
@@ -920,7 +962,7 @@ $("rows").addEventListener("click", (e) => {
       break;
     case "delete":
       if (confirm(`Delete "${item.name}" and its sales history? This can't be undone.`)) {
-        items = items.filter((i) => i.id !== item.id);
+        forgetItem(item.id);
         ui.expanded.delete(item.id);
         saveItems();
         render();
@@ -929,6 +971,7 @@ $("rows").addEventListener("click", (e) => {
     case "undo-sale":
       if (confirm("Undo this sale? The units go back into inventory.")) {
         item.sales = item.sales.filter((s) => s.id !== el.dataset.sale);
+        touch(item);
         saveItems();
         render();
       }
@@ -997,27 +1040,12 @@ $("importFile").addEventListener("change", async (e) => {
       i && typeof i.name === "string" && Number(i.qty) >= 1 && Number.isFinite(Number(i.unitCost)));
     if (!valid) throw new Error("bad format");
     if (!confirm(`Replace your current data (${items.length} items) with this backup (${data.length} items)?`)) return;
-    items = data.map((i) => ({
-      id: i.id || uid(),
-      name: i.name,
-      type: i.type || "Other",
-      set: i.set || "",
-      number: i.number || "",
-      photo: okPhoto(i.photo) ? i.photo : "",
-      qty: Number(i.qty),
-      unitCost: Number(i.unitCost),
-      buyDate: i.buyDate || today(),
-      boughtFrom: i.boughtFrom || "",
-      notes: i.notes || "",
-      sales: (Array.isArray(i.sales) ? i.sales : []).map((s) => ({
-        id: s.id || uid(),
-        date: s.date || today(),
-        qty: Number(s.qty) || 0,
-        unitPrice: Number(s.unitPrice) || 0,
-        fees: Number(s.fees) || 0,
-        platform: s.platform || "",
-      })),
-    }));
+    const incoming = data.map((i) => touch(normalizeItem(i)));
+    // items that were here but aren't in the backup are being replaced, so other devices should drop them too
+    const keep = new Set(incoming.map((i) => i.id));
+    for (const old of items) if (!keep.has(old.id)) forgetItem(old.id);
+    tombstones = tombstones.filter((t) => !keep.has(t.id));
+    items = incoming;
     saveItems();
     render();
   } catch {

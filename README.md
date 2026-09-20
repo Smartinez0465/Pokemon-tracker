@@ -57,11 +57,32 @@ Both steps need an internet connection. Without one you can still add items by h
 
 ## Where your data lives
 
-Data is saved in the browser on each device, so **your phone and computer do not share
-data yet**. Use *Backup (JSON)* on one and *Restore backup* on the other to move it.
-Syncing across devices needs a small backend (e.g. Supabase or Firebase) and a login.
+Each device keeps its own copy in the browser, and the app always works from that copy, so it works offline.
+Without sync turned on, your phone and computer **do not share data**: use *Backup* on one and *Restore* on the other.
+
+## Sync your phone and computer (optional)
+
+Sync signs you in with an email and password and keeps every device's copy in step through a free
+[Supabase](https://supabase.com) project. Until you set it up, the app behaves exactly as before and the sign-in button is hidden.
+
+1. Create a free account at supabase.com and click **New project** (any name; save the database password somewhere).
+2. Open **SQL Editor → New query**, paste the whole of [`supabase/setup.sql`](supabase/setup.sql), and click **Run**.
+3. **Authentication → Sign In / Providers → Email**: turn **off** "Confirm email" (otherwise sign-up waits for an email link).
+4. **Authentication → URL Configuration**: set **Site URL** to your site's address
+   (`https://smartinez0465.github.io/Pokemon-tracker/`). Password-reset emails link back to it.
+5. **Project Settings → API** (or **API Keys**): copy the **Project URL** and the **anon / publishable key**, and paste them into [`config.js`](config.js).
+   These two values are meant to be public. The database only lets each signed-in user see their own items.
+6. Publish the site, open it on each device, tap **Sign in to sync**, and **Create account** once. Then use the same email and password everywhere.
+7. Once your account exists, switch **off** *Allow new users to sign up* (Authentication → Sign In / Providers) so nobody else can register.
+
+How it behaves
+- Changes save on the device first and upload in the background. Offline edits are kept and sent when you're back online.
+- If the same item is edited on two devices before they sync, the newest edit wins but **sales from both are kept**.
+- Signing out removes the items from that device (they stay in your account and return when you sign in).
+- Photos sync too. The free plan has plenty of room, but a very large photo library will use it up.
+- Supabase's free plan pauses a project that sees no use for about a week. Your data is kept: open the dashboard and click **Restore**.
 
 ## Updating the site
 
-After changing files, bump `CACHE` in `sw.js` (e.g. `pokemon-tracker-v2`) so
-installed copies pick up the new version.
+Push to `main` and GitHub Pages redeploys in about a minute. If a change doesn't show up on an installed copy,
+bump `CACHE` in `sw.js` (e.g. `pokemon-tracker-v8`) so devices drop their old cached files.

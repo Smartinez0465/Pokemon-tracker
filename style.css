@@ -396,6 +396,22 @@ dialog input[readonly] { color: var(--color-neutral-500); }
   text-transform: uppercase;
   vertical-align: 1px;
 }
+/* ---------- account / sync ---------- */
+.acct { font-size: 12px; display: inline-flex; align-items: center; gap: var(--space-2); }
+.acct::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-neutral-600);
+}
+.acct[data-state="synced"]::before { background: var(--color-accent); }
+.acct[data-state="syncing"]::before { background: var(--color-accent-400); animation: pulse 1s ease-in-out infinite; }
+.acct[data-state="offline"]::before, .acct[data-state="error"]::before { background: var(--color-neutral-400); }
+@keyframes pulse { 50% { opacity: 0.3; } }
+.dialog-actions.between { justify-content: space-between; align-items: center; }
+#authDialog p { margin: 0 0 var(--space-4); }
+
 .photo-dialog { padding: var(--space-3); width: auto; max-width: min(92vw, 520px); }
 .photo-dialog img { display: block; max-width: 100%; max-height: 80vh; border-radius: var(--radius-md); }
 .thumb[data-action="zoom"] { cursor: zoom-in; }
