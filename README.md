@@ -39,7 +39,17 @@ In **Add item**, tap *Take or choose photo* (on a phone this offers the camera).
 2. reads the card name and number **on your device** (Tesseract OCR, loaded from a CDN on first use),
 3. looks that up in the free [TCGdex](https://tcgdex.net) database and fills in name, set, card number and type.
 
-If it can't read the card, type a name (and optionally the number, e.g. `charizard 4/102`) into **Find card** and pick the match.
+It works for **sealed product** too (boxes, ETBs, tins, collections, blisters...). Sealed items have no card
+number, so the app matches the words on the package against a list of known products
+(`data/sealed.json`) and fills in the name, set and type.
+
+If it can't read the photo, type a name into **Find card or sealed product** and pick the match, e.g.
+`charizard 4/102` or `30th celebration tech sticker collection`.
+
+Card data comes from TCGdex. The sealed list is a snapshot of [TCGCSV](https://tcgcsv.com) (a free mirror of TCGplayer's
+catalog), built by `node tools/build-sealed.mjs`. TCGCSV doesn't allow browsers to read it directly, which is why it's
+a bundled file. A GitHub Action (`.github/workflows/update-sealed.yml`) refreshes it every Monday so new sets show up;
+you can also run it by hand from the repo's **Actions** tab.
 Anything you typed yourself is never overwritten by auto-fill. The bought date defaults to today and can be changed.
 
 Only the words read from the card are sent to TCGdex; the photo itself stays in your browser.

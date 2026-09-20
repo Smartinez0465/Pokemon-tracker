@@ -386,7 +386,7 @@ function resetLookup(item) {
   pickedId = "";
   $("cardSearch").value = "";
   renderResults();
-  setStatus("Add a photo of the card and I'll try to fill in what it is.");
+  setStatus("Add a photo of a card or sealed product and I'll try to fill in what it is.");
   renderPhoto();
 }
 
@@ -480,7 +480,7 @@ async function readCardText(canvas, onProgress) {
     const out = { top: await strip(0, 0.18), bottom: await strip(0.85, 0.15), full: "" };
 
     if (!guessName(out.top) || !guessNumber(out.bottom)) {
-      await worker.setParameters({ tessedit_pageseg_mode: "3" }); // whole page, automatic layout
+      await worker.setParameters({ tessedit_pageseg_mode: "11" }); // whole page, scattered text (box art)
       out.full = (await worker.recognize(canvas)).data.text;
     }
     return out;
@@ -554,6 +554,7 @@ async function searchCards({ name, number, total }) {
     const numOk = !!want && digits(d.localId) === want;
     const totOk = !!total && String(official) === digits(total);
     return {
+      kind: "card",
       id: d.id,
       name: d.name,
       setName: d.set?.name ?? "",
@@ -565,13 +566,121 @@ async function searchCards({ name, number, total }) {
   }).sort((a, b) => b.score - a.score).slice(0, 8);
 }
 
+/* -- sealed products (boxes, tins, collections...) -- */
+
+/*
+ * TCGdex only knows single cards, so sealed product comes from a snapshot the app ships with:
+ * data/sealed.json, built by tools/build-sealed.mjs as [productId, groupIndex, name] rows.
+ * Matching is by words: rare words ("celebration", "lucario") count far more than common ones
+ * ("collection", "box"), so a photo's text only needs to contain the distinctive parts of a name.
+ */
+
+let sealedIndex = null;
+function loadSealed() {
+  return (sealedIndex ??= fetch("data/sealed.json")
+    .then((r) => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+    .then(buildSealedIndex)
+    .catch(() => { sealedIndex = null; return null; })); // try again next time
+}
+
+const STOP_WORDS = new Set("the of and for with a an in by to pokemon tcg trading card cards game inc tm".split(" "));
+
+function tokenize(text) {
+  return String(text || "").toLowerCase()
+    .normalize("NFD").replace(/[̀-ͯ]/g, "") // é -> e
+    .replace(/&/g, " and ")
+    .split(/[^a-z0-9]+/)
+    .filter((t) => t.length >= 2 && !STOP_WORDS.has(t));
+}
+
+const sameWord = (a, b) => a === b || (a.length >= 5 && b.length >= 5 && (a.startsWith(b) || b.startsWith(a)));
+
+function buildSealedIndex(data) {
+  const items = data.items.map(([id, gi, name]) => ({
+    id, name, group: data.groups[gi][1], tokens: [...new Set(tokenize(name))],
+  }));
+  const df = new Map();
+  for (const it of items) for (const t of it.tokens) df.set(t, (df.get(t) || 0) + 1);
+  const weight = (t) => Math.log(1 + items.length / (1 + (df.get(t) || 0)));
+  for (const it of items) it.total = it.tokens.reduce((s, t) => s + weight(t), 0);
+  return { items, weight };
+}
+
+// "ME: 30th Celebration" -> "30th Celebration", "SM - Cosmic Eclipse" -> "Cosmic Eclipse"
+function cleanSetName(group) {
+  if (/^miscellaneous/i.test(group)) return "";
+  return group.replace(/^[A-Z]{2,5}\d{0,2}\s*[:\-]\s+/, "");
+}
+
+function guessSealedType(name) {
+  const n = name.toLowerCase();
+  if (/\bcase\b|\bbundle\b|\bblister\b/.test(n)) return "Collection / tin / other sealed";
+  if (/elite trainer box/.test(n)) return "Elite Trainer Box";
+  if (/booster (box|display)/.test(n)) return "Booster box";
+  if (/booster pack/.test(n) && !/\d[- ]pack|pack of|display|box/.test(n)) return "Booster pack";
+  return "Collection / tin / other sealed";
+}
+
+const looksSealed = (text) =>
+  /\b(box|etb|tin|collection|pack|bundle|blister|sticker|elite|trainer|display|case|deck|premium|binder|sleeves|playmat|celebration|anniversary)\b/i.test(text || "");
+
+// Typed search: how much of what you typed does the product name cover.
+// Photo search (query.ocrText): how much of the product name appears in the text read off the box.
+async function searchSealed(query) {
+  const idx = await loadSealed();
+  if (!idx) return [];
+  const ocr = !!query.ocrText;
+  const qTokens = [...new Set(tokenize(ocr ? query.ocrText : query.name))];
+  if (!qTokens.length) return [];
+  const qTotal = qTokens.reduce((s, t) => s + idx.weight(t), 0);
+
+  const scored = [];
+  for (const it of idx.items) {
+    let matched = 0, count = 0, covered = 0;
+    for (const t of it.tokens) {
+      if (qTokens.some((q) => sameWord(q, t))) { matched += idx.weight(t); count++; }
+    }
+    if (!count) continue;
+    for (const q of qTokens) {
+      if (it.tokens.some((t) => sameWord(q, t))) covered += idx.weight(q);
+    }
+    const precision = matched / it.total;
+    const coverage = covered / qTotal;
+    if (ocr ? !(count >= 2 && precision >= 0.5) : coverage < 0.5) continue;
+    scored.push({ it, matched, score: ocr ? precision : 0.75 * coverage + 0.25 * precision });
+  }
+  scored.sort((a, b) => b.score - a.score); // stable: ties keep newest set first
+
+  const results = scored.slice(0, ocr ? 6 : 8).map(({ it, score }) => ({
+    kind: "sealed",
+    id: "p" + it.id,
+    name: it.name,
+    setName: cleanSetName(it.group),
+    printed: "",
+    image: `https://tcgplayer-cdn.tcgplayer.com/product/${it.id}_200w.jpg`,
+    type: guessSealedType(it.name),
+    score,
+    strong: false,
+  }));
+  // Only treat a photo match as certain when it's a near-complete, distinctive name with a clear lead.
+  if (ocr && scored.length) {
+    const [top, next] = scored;
+    results[0].strong = top.score >= 0.8 && top.matched >= 5 && (!next || top.score - next.score >= 0.08);
+  }
+  return results;
+}
+
+/* -- parsing what was typed / how results are shown and applied -- */
+
 function parseQuery(text) {
   const t = text.trim();
   let m = t.match(/^(.*\S)\s+([A-Za-z]{0,3}\d{1,3})\s*\/\s*([A-Za-z]{0,3}\d{2,3})$/); // "charizard 4/102"
-  if (m) return { name: m[1], number: m[2], total: m[3] };
+  if (m) return { name: m[1], number: m[2], total: m[3], raw: t };
   m = t.match(/^(.*\S)\s+(\d{1,3})$/);                                                 // "charizard 4"
-  return m ? { name: m[1], number: m[2] } : { name: t };
+  return m ? { name: m[1], number: m[2], raw: t } : { name: t, raw: t };
 }
+
+const describe = (c) => [c.name, c.setName, c.printed && "#" + c.printed].filter(Boolean).join(" · ");
 
 function renderResults() {
   const box = $("cardResults");
@@ -581,7 +690,10 @@ function renderResults() {
       ${c.image
         ? `<img src="${esc(c.image)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.style.visibility='hidden'">`
         : `<i class="noimg"></i>`}
-      <div><b>${esc(c.name)}</b><span>${esc([c.setName, "#" + c.printed].filter(Boolean).join(" · "))}</span></div>
+      <div>
+        <b>${esc(c.name)}${c.kind === "sealed" ? ' <em class="tag">Sealed</em>' : ""}</b>
+        <span>${esc([c.setName, c.printed && "#" + c.printed].filter(Boolean).join(" · "))}</span>
+      </div>
     </button>`).join("");
 }
 
@@ -592,8 +704,8 @@ function applyCard(card, explicit) {
   };
   put("name", card.name);
   put("set", card.setName);
-  put("number", card.printed);
-  put("type", "Single card");
+  put("number", card.printed); // sealed products have none, which clears a leftover card number
+  put("type", card.kind === "sealed" ? card.type : "Single card");
   // the official picture is only a stand-in until they add their own photo
   if (card.image && (!photoData || photoIsOfficial)) {
     photoData = card.image;
@@ -605,30 +717,48 @@ function applyCard(card, explicit) {
 }
 
 async function lookup(query, token, auto) {
-  setStatus(`Looking up “${query.name}”…`);
-  let cards;
-  try {
-    cards = await searchCards(query);
-  } catch {
-    if (token === lookupToken) setStatus("Couldn't reach the card database. Check your connection, or fill in the details yourself.");
-    return;
-  }
+  setStatus(`Looking up “${query.name || "the photo"}”…`);
+  let sealed = [], cards = [], cardsFailed = false;
+
+  if (!query.skipSealed) sealed = await searchSealed(query).catch(() => []); // local, so works offline
   if (token !== lookupToken) return;
 
-  found = cards;
+  const sealedStrong = !!sealed[0]?.strong;
+  if (query.name && !sealedStrong) {
+    try {
+      cards = await searchCards(query);
+    } catch {
+      cardsFailed = true;
+    }
+    if (token !== lookupToken) return;
+  }
+
+  const sealedFirst = query.ocrText ? sealedStrong : looksSealed(query.raw || query.name);
+  found = sealedFirst ? [...sealed, ...cards] : [...cards, ...sealed.slice(0, 5)];
   pickedId = "";
-  if (!cards.length) {
+
+  if (!found.length) {
     renderResults();
-    setStatus(`No card found for “${query.name}”. Try a shorter name.`);
+    setStatus(cardsFailed
+      ? "Couldn't reach the card database. Check your connection, or fill in the details yourself."
+      : query.ocrText
+        ? "Couldn't tell what that is from the photo. Type its name in Find card, or try a straighter, brighter photo."
+        : `Nothing found for “${query.name}”. Try fewer words.`);
     return;
   }
-  const best = cards[0];
-  if (auto && (best.numOk || cards.length === 1)) {
-    applyCard(best, false);
-    setStatus(`Filled in from the photo: ${best.name} · ${best.setName} · #${best.printed}. Wrong card? Pick another below.`, true);
+
+  const bestCard = cards[0];
+  const pick = sealedStrong ? sealed[0]
+    : bestCard && (bestCard.numOk || (cards.length === 1 && !sealed.length)) ? bestCard : null;
+  if (auto && pick) {
+    applyCard(pick, false);
+    if (pick.kind === "sealed") $("cardSearch").value = pick.name; // replace any junk words read off the box
+    setStatus(`Filled in from the photo: ${describe(pick)}. Wrong one? Pick another below.`, true);
   } else {
     renderResults();
-    setStatus(auto ? "I read the card but wasn't sure which one it is. Pick the match below." : "Pick the matching card below.");
+    setStatus(auto
+      ? "I read the photo but wasn't sure what it is. Pick the match below, or type a name in Find card."
+      : "Pick the match below.");
   }
 }
 
@@ -638,24 +768,26 @@ async function identify(canvas, token) {
   try {
     text = await readCardText(canvas, (m) => {
       if (token === lookupToken && m.status === "recognizing text") {
-        setStatus(`Reading the card… ${Math.round((m.progress || 0) * 100)}%`);
+        setStatus(`Reading the photo… ${Math.round((m.progress || 0) * 100)}%`);
       }
     });
   } catch {
-    if (token === lookupToken) setStatus("Couldn't run the text reader (it needs an internet connection). Type the card name in Find card instead.");
+    if (token === lookupToken) setStatus("Couldn't run the text reader (it needs an internet connection). Type the name in Find card instead.");
     return;
   }
   if (token !== lookupToken) return;
 
   const name = guessName(text.top) || guessName(text.full);
   const num = guessNumber(text.bottom) || guessNumber(text.full) || guessNumber(text.top);
-  if (!name) {
-    setStatus("Couldn't read a name from that photo. Type it in Find card, or try a straighter, brighter photo.");
-    $("cardSearch").focus();
+
+  if (name && num) { // a card: name plus the printed set number
+    $("cardSearch").value = `${name} ${num.local}/${num.total}`;
+    await lookup({ name, number: num.local, total: num.total, raw: name, skipSealed: true }, token, true);
     return;
   }
-  $("cardSearch").value = name + (num ? ` ${num.local}/${num.total}` : "");
-  await lookup({ name, number: num?.local, total: num?.total }, token, true);
+  // No card number, so it may be sealed (box, tin, collection...): match the words on it against known products.
+  $("cardSearch").value = name;
+  await lookup({ name, raw: name, ocrText: [text.top, text.bottom, text.full].join("\n") }, token, true);
 }
 
 /* -- wiring -- */

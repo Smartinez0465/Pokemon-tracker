@@ -1,7 +1,7 @@
 "use strict";
 
 // Bump CACHE when you want every device to drop old cached files.
-const CACHE = "pokemon-tracker-v5";
+const CACHE = "pokemon-tracker-v6";
 const ASSETS = [
   "./",
   "index.html",
@@ -13,6 +13,7 @@ const ASSETS = [
   "icons/apple-touch-icon.png",
   "assets/gengar.jpg",
   "assets/mew.jpg",
+  "data/sealed.json",
 ];
 
 self.addEventListener("install", (e) => {
