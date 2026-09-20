@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Card Ledger</title>
+  <meta name="description" content="Track what you bought, what's in inventory, and what you sold your Pokémon cards and products for.">
+  <meta name="theme-color" content="#161826">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Card Ledger">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <img class="logo" src="assets/gengar.jpg" alt="" width="34" height="34">
+      <span class="brand-name">Card Ledger</span>
+      <span class="brand-tag">collection &amp; flips</span>
+    </div>
+    <input id="search" class="search" type="search" placeholder="Search name, set, number" aria-label="Search">
+    <button id="addBtn" class="btn accent" type="button">Add item</button>
+  </header>
+
+  <div class="page">
+  <aside class="side"><img src="assets/mew.jpg" alt="" width="200" height="200"></aside>
+
+  <main>
+    <section class="stats" id="stats" aria-label="Summary"></section>
+
+    <div class="toolbar">
+      <div class="tabs" role="tablist">
+        <button class="tab" type="button" role="tab" data-tab="inventory">Inventory</button>
+        <button class="tab" type="button" role="tab" data-tab="sold">Sold</button>
+      </div>
+      <span id="count" class="count"></span>
+      <select id="sort" class="sort" aria-label="Sort"></select>
+    </div>
+
+    <section class="panel">
+      <div class="table-wrap">
+        <table id="table">
+          <thead id="head"></thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+      <div id="empty" class="empty" hidden>
+        <img src="assets/mew.jpg" alt="" width="96" height="96">
+        <span id="emptyText"></span>
+      </div>
+    </section>
+
+    <p class="foot">
+      Saved in this browser. Prices are what you paid and what it sold for, not market value.
+      <span class="foot-actions">
+        <button id="exportCsv" class="link" type="button">Export CSV</button>
+        <button id="exportJson" class="link" type="button">Backup</button>
+        <button id="importBtn" class="link" type="button">Restore</button>
+      </span>
+      <input id="importFile" type="file" accept="application/json,.json" hidden>
+    </p>
+  </main>
+  </div>
+
+  <!-- Add / edit item -->
+  <dialog id="itemDialog">
+    <form id="itemForm" method="dialog" autocomplete="off">
+      <h2 id="itemTitle">Add item</h2>
+
+      <div class="photo-box">
+        <button type="button" id="photoThumb" class="photo-preview" aria-label="Item photo"><span>No photo</span></button>
+        <div class="photo-actions">
+          <div class="photo-buttons">
+            <button type="button" id="photoBtn" class="btn accent">Take or choose photo</button>
+            <button type="button" id="photoRemove" class="btn quiet" hidden>Remove</button>
+          </div>
+          <p id="idStatus" class="tiny" role="status">Add a photo of the card and I&#39;ll try to fill in what it is.</p>
+        </div>
+        <input id="photoFile" type="file" accept="image/*" hidden>
+      </div>
+
+      <label>Find card
+        <input id="cardSearch" type="search" placeholder="Type a name, e.g. Charizard 4/102">
+      </label>
+      <div id="cardResults" class="results" hidden></div>
+
+      <label>Name
+        <input name="name" required placeholder="Charizard holo">
+      </label>
+      <div class="row">
+        <label class="grow">Set / series
+          <input name="set" placeholder="Base Set">
+        </label>
+        <label class="narrow">Card no.
+          <input name="number" placeholder="4/102">
+        </label>
+      </div>
+      <div class="row">
+        <label class="grow">Type
+          <select name="type">
+            <option>Single card</option>
+            <option>Graded card</option>
+            <option>Booster pack</option>
+            <option>Booster box</option>
+            <option>Elite Trainer Box</option>
+            <option>Collection / tin / other sealed</option>
+            <option>Other</option>
+          </select>
+        </label>
+        <label class="narrow">Qty
+          <input name="qty" type="number" inputmode="numeric" min="1" step="1" value="1" required>
+        </label>
+      </div>
+      <div class="row">
+        <label class="grow">Bought for (each)
+          <input name="unitCost" type="number" inputmode="decimal" min="0" step="0.01" required>
+        </label>
+        <label class="grow">Total
+          <input id="totalCostPreview" readonly tabindex="-1">
+        </label>
+      </div>
+      <div class="row">
+        <label class="grow">Date bought
+          <input name="buyDate" type="date" required>
+        </label>
+        <label class="grow">Where bought
+          <input name="boughtFrom" placeholder="Target, eBay, card show">
+        </label>
+      </div>
+      <label>Notes (condition, grade, cert #…)
+        <textarea name="notes" rows="2"></textarea>
+      </label>
+      <p class="form-error" id="itemError" hidden></p>
+      <div class="dialog-actions">
+        <button type="button" class="btn quiet" data-close>Cancel</button>
+        <button type="submit" class="btn accent">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Record a sale -->
+  <dialog id="sellDialog">
+    <form id="sellForm" method="dialog" autocomplete="off">
+      <h2 id="sellTitle">Record a sale</h2>
+      <p id="sellInfo" class="muted"></p>
+      <div class="row">
+        <label class="narrow">Qty sold
+          <input name="qty" type="number" inputmode="numeric" min="1" step="1" required>
+        </label>
+        <label class="grow">Sold for (each)
+          <input name="unitPrice" type="number" inputmode="decimal" min="0" step="0.01" required>
+        </label>
+        <label class="grow">Fees + shipping
+          <input name="fees" type="number" inputmode="decimal" min="0" step="0.01" value="0">
+        </label>
+      </div>
+      <div class="row">
+        <label class="grow">Date sold
+          <input name="date" type="date" required>
+        </label>
+        <label class="grow">Sold where
+          <input name="platform" placeholder="eBay">
+        </label>
+      </div>
+      <p id="sellPreview" class="preview"></p>
+      <p class="form-error" id="sellError" hidden></p>
+      <div class="dialog-actions">
+        <button type="button" class="btn quiet" data-close>Cancel</button>
+        <button type="submit" class="btn accent">Mark sold</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="photoDialog" class="photo-dialog">
+    <img id="photoBig" alt="">
+  </dialog>
+
+  <script src="app.js"></script>
+</body>
+</html>
