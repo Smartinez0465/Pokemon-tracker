@@ -34,6 +34,7 @@
   <aside class="side"><img src="assets/mew.jpg" alt="" width="200" height="200"></aside>
 
   <main>
+    <section class="market" id="market" aria-label="Estimated value of your inventory"></section>
     <section class="stats" id="stats" aria-label="Summary"></section>
 
     <div class="toolbar">
@@ -41,6 +42,7 @@
         <button class="tab" type="button" role="tab" data-tab="inventory">Inventory</button>
         <button class="tab" type="button" role="tab" data-tab="sold">Sold</button>
       </div>
+      <div class="tabs" id="kinds" role="group" aria-label="Show"></div>
       <span id="count" class="count"></span>
       <select id="sort" class="sort" aria-label="Sort"></select>
     </div>
@@ -59,7 +61,7 @@
     </section>
 
     <p class="foot">
-      Saved in this browser. Prices are what you paid and what it sold for, not market value.
+      Saved in this browser. Your prices are what you paid and what it sold for; the value bar is a market estimate.
       <span class="foot-actions">
         <button id="exportCsv" class="link" type="button">Export CSV</button>
         <button id="exportJson" class="link" type="button">Backup</button>
@@ -75,6 +77,17 @@
     <form id="itemForm" method="dialog" autocomplete="off">
       <h2 id="itemTitle">Add item</h2>
 
+      <div class="kind" id="kindPick" role="radiogroup" aria-label="What are you adding?">
+        <button type="button" class="kind-btn" role="radio" aria-checked="false" data-kind="single">
+          <b>Single card</b><span>Raw or graded</span>
+        </button>
+        <button type="button" class="kind-btn" role="radio" aria-checked="false" data-kind="sealed">
+          <b>Sealed product</b><span>Boxes, ETBs, packs, tins</span>
+        </button>
+      </div>
+      <p class="kind-hint tiny" id="kindHint">Choose what you're adding to continue.</p>
+
+      <div class="after-kind">
       <div class="photo-box">
         <button type="button" id="photoThumb" class="photo-preview" aria-label="Item photo"><span>No photo</span></button>
         <div class="photo-actions">
@@ -87,8 +100,8 @@
         <input id="photoFile" type="file" accept="image/*" hidden>
       </div>
 
-      <label>Find card or sealed product
-        <input id="cardSearch" type="search" placeholder="e.g. Charizard 4/102 or 30th Celebration tin">
+      <label><span id="searchLabel">Find card</span>
+        <input id="cardSearch" type="search" placeholder="e.g. Charizard 4/102">
       </label>
       <div id="cardResults" class="results" hidden></div>
 
@@ -99,21 +112,13 @@
         <label class="grow">Set / series
           <input name="set" placeholder="Base Set">
         </label>
-        <label class="narrow">Card no.
+        <label class="narrow" id="numberField">Card no.
           <input name="number" placeholder="4/102">
         </label>
       </div>
       <div class="row">
         <label class="grow">Type
-          <select name="type">
-            <option>Single card</option>
-            <option>Graded card</option>
-            <option>Booster pack</option>
-            <option>Booster box</option>
-            <option>Elite Trainer Box</option>
-            <option>Collection / tin / other sealed</option>
-            <option>Other</option>
-          </select>
+          <select name="type"></select>
         </label>
         <label class="narrow">Qty
           <input name="qty" type="number" inputmode="numeric" min="1" step="1" value="1" required>
@@ -139,9 +144,10 @@
         <textarea name="notes" rows="2"></textarea>
       </label>
       <p class="form-error" id="itemError" hidden></p>
+      </div>
       <div class="dialog-actions">
         <button type="button" class="btn quiet" data-close>Cancel</button>
-        <button type="submit" class="btn accent">Save</button>
+        <button type="submit" class="btn accent after-kind">Save</button>
       </div>
     </form>
   </dialog>

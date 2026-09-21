@@ -1,8 +1,9 @@
-// Builds data/sealed.json: every sealed (non-card) Pokémon TCG product, from TCGCSV.
+// Builds data/sealed.json: every sealed (non-card) Pokémon TCG product, with its current market price,
+// as [productId, groupIndex, name, price] rows, from TCGCSV.
 //
 // TCGCSV (https://tcgcsv.com) is a free daily mirror of TCGplayer's catalog. It doesn't allow
-// browsers to read it directly (no CORS), so we snapshot the sealed products here, ship the file
-// with the app, and refresh it on a schedule (see .github/workflows/update-sealed.yml).
+// browsers to read it directly (no CORS), so we snapshot the sealed products and their prices here,
+// ship the file with the app, and refresh it on a schedule (see .github/workflows/update-sealed.yml).
 //
 // Run: node tools/build-sealed.mjs
 import { mkdir, writeFile } from "node:fs/promises";
@@ -38,8 +39,14 @@ for (const g of groups) {
   const sealed = products.filter((p) =>
     !(p.extendedData ?? []).some((e) => e.name === "Number") && !/^code card\b/i.test(p.name));
   if (sealed.length) {
+    // TCGplayer's market price (what it's really selling for lately), in USD; null when it has none
+    const prices = new Map();
+    for (const r of (await get(`${BASE}/${g.groupId}/prices`)).results ?? []) {
+      const price = r.marketPrice ?? r.midPrice;
+      if (price != null && !prices.has(r.productId)) prices.set(r.productId, price);
+    }
     const gi = outGroups.push([g.groupId, g.name]) - 1;
-    for (const p of sealed) items.push([p.productId, gi, p.name]);
+    for (const p of sealed) items.push([p.productId, gi, p.name, prices.get(p.productId) ?? null]);
   }
   await sleep(120); // be gentle with a free service
 }

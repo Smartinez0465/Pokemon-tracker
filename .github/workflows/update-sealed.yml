@@ -1,11 +1,12 @@
-# Keeps data/sealed.json (the list of sealed products the app can recognise) up to date.
-# Runs every Monday, and you can also run it by hand from the repo's Actions tab.
+# Keeps data/sealed.json (the sealed products the app can recognise, plus their current market prices) and
+# data/sealed-vec.* (a visual fingerprint of each product's box art, used to recognise a product from a photo)
+# up to date. Runs every day, and you can also run it by hand from the repo's Actions tab.
 # To turn it off, delete this file.
 name: Update sealed product list
 
 on:
   schedule:
-    - cron: "17 6 * * 1"
+    - cron: "17 6 * * *"
   workflow_dispatch:
 
 permissions:
@@ -20,20 +21,27 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: Rebuild data/sealed.json
+      - name: Rebuild data/sealed.json (products and prices)
         run: node tools/build-sealed.mjs
+      - name: Fingerprint any new products
+        # only installs the (large) vision libraries when there is a new product to fingerprint
+        run: |
+          if node tools/build-vectors.mjs --need; then
+            npm install --no-audit --no-fund
+            node tools/build-vectors.mjs
+          fi
       - name: Commit if it changed
         id: commit
         run: |
-          # the "generated" date changes every run, so only commit when the product list itself changed
-          if git diff --quiet -I'"generated":"[0-9-]*"' data/sealed.json; then
-            echo "No new products."
+          # the "generated" date changes every run, so only commit when a product, a price or a fingerprint changed
+          if git diff --quiet -I'"generated":"[0-9-]*"' data/sealed.json && git diff --quiet data/sealed-vec.json data/sealed-vec.bin; then
+            echo "No new products, prices or fingerprints."
             git checkout -- data/sealed.json
           else
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add data/sealed.json
-            git commit -m "Update sealed product list"
+            git add data/sealed.json data/sealed-vec.json data/sealed-vec.bin
+            git commit -m "Update sealed products and prices"
             git push
             echo "changed=true" >> "$GITHUB_OUTPUT"
           fi

@@ -1,0 +1,5 @@
+{
+  "_readme": "Nicknames people use for specific cards, which no card database lists. Each key is the nickname (lower case) and its ids are TCGdex card ids (the part after 'card:'; find one at tcgdex.dev or in a card's saved data). Typing the nickname in Find card puts these cards first. Add your own; keep the file valid JSON.",
+  "bubble mew": { "ids": ["sv04.5-232"] },
+  "moonbreon": { "ids": ["swsh7-215"] }
+}

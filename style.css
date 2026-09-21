@@ -188,6 +188,33 @@ main {
 .pos { color: var(--color-accent-300); }
 .neg { color: var(--color-neutral-300); }
 
+/* market value bar: what the inventory would sell for today */
+.market {
+  display: grid;
+  grid-template-columns: 1.3fr 1fr 1.7fr;
+  gap: 1px;
+  background: var(--color-neutral-800);
+  border: 1px solid var(--color-neutral-800);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+.market .stat.main { box-shadow: inset 2px 0 0 var(--color-accent); }
+.market .stat .value.sm { font-size: 20px; }
+.market .stat .value.dash { color: var(--color-neutral-600); }
+.market .note {
+  background: var(--color-surface);
+  padding: var(--space-6);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: var(--space-2);
+  font-size: 12px;
+  color: var(--color-neutral-500);
+}
+.market .note p { margin: 0; }
+.market .note .link { align-self: flex-start; font-size: 12px; }
+.market .note .link:disabled { color: var(--color-neutral-600); cursor: default; }
+
 .toolbar { display: flex; align-items: center; gap: var(--space-6); flex-wrap: wrap; }
 .tabs {
   display: inline-flex;
@@ -206,7 +233,8 @@ main {
   background: transparent;
   color: var(--color-neutral-400);
 }
-.tab[aria-selected="true"] { background: var(--color-accent-900); color: var(--color-accent-200); }
+.tab[aria-selected="true"], .tab[aria-pressed="true"] { background: var(--color-accent-900); color: var(--color-accent-200); }
+.tab .tiny { margin-left: 2px; }
 .count { color: var(--color-neutral-500); font-size: 12px; margin-right: auto; }
 .sort { padding: var(--space-2) var(--space-4); font-size: 12px; }
 
@@ -236,6 +264,14 @@ td {
   border-bottom: 1px solid var(--color-divider);
   vertical-align: middle;
 }
+/* heading row that starts each section (sealed / cards) */
+tr.group td {
+  padding: var(--space-3) var(--space-6);
+  background: var(--color-neutral-900);
+  border-bottom: 1px solid var(--color-divider);
+}
+tr.group .group-name { font-weight: 500; font-size: 13px; }
+tr.group .group-sum { float: right; font-size: 12px; color: var(--color-neutral-500); }
 tr.entry { cursor: pointer; }
 tr.entry:hover { background: var(--color-neutral-900); }
 .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
@@ -327,6 +363,33 @@ dialog input[readonly] { color: var(--color-neutral-500); }
 .preview { margin: 0 0 var(--space-4); font-weight: 500; }
 
 
+/* ---------- sealed or single card ---------- */
+.kind { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-3); margin-bottom: var(--space-4); }
+.kind-btn {
+  display: grid;
+  gap: 2px;
+  padding: var(--space-4) var(--space-6);
+  text-align: left;
+  background: var(--color-bg);
+  border: 1px solid var(--color-neutral-800);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+.kind-btn b { font-weight: 500; font-size: 14px; }
+.kind-btn span { font-size: 12px; color: var(--color-neutral-500); }
+.kind-btn:hover { border-color: var(--color-neutral-600); }
+.kind-btn[aria-checked="true"] {
+  border-color: var(--color-accent);
+  background: var(--color-accent-900);
+  box-shadow: inset 2px 0 0 var(--color-accent);
+}
+.kind-btn[aria-checked="true"] span { color: var(--color-accent-300); }
+.kind-hint { margin: 0 0 var(--space-2); }
+.kind-hint[hidden] { display: none; }
+/* nothing else in the form shows until they've chosen */
+#itemForm.no-kind .after-kind { display: none; }
+#numberField[hidden] { display: none; }
+
 /* ---------- photo + card lookup ---------- */
 .photo-box { display: flex; gap: var(--space-4); align-items: flex-start; margin-bottom: var(--space-4); }
 .photo-preview {
@@ -351,7 +414,7 @@ dialog input[readonly] { color: var(--color-neutral-500); }
 .results {
   display: grid;
   gap: 1px;
-  max-height: 230px;
+  max-height: 300px;
   overflow-y: auto;
   margin: calc(-1 * var(--space-2)) 0 var(--space-4);
   background: var(--color-neutral-800);
@@ -383,19 +446,7 @@ dialog input[readonly] { color: var(--color-neutral-500); }
 .result b { display: block; font-weight: 500; font-size: 13px; }
 .result span { display: block; font-size: 12px; color: var(--color-neutral-500); }
 
-.result em.tag {
-  display: inline-block;
-  margin-left: var(--space-2);
-  padding: 0 6px;
-  border-radius: var(--radius-sm);
-  background: var(--color-accent-800);
-  color: var(--color-accent-100);
-  font-size: 10px;
-  font-style: normal;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  vertical-align: 1px;
-}
+
 /* ---------- account / sync ---------- */
 .acct { font-size: 12px; display: inline-flex; align-items: center; gap: var(--space-2); }
 .acct::before {
@@ -423,6 +474,7 @@ dialog input[readonly] { color: var(--color-neutral-500); }
 @media (max-width: 900px) {
   .stats { grid-template-columns: repeat(2, 1fr); }
   .stat:last-child { grid-column: 1 / -1; }
+  .market { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 700px) {
@@ -442,6 +494,10 @@ dialog input[readonly] { color: var(--color-neutral-500); }
   .table-wrap { overflow: visible; }
   table, tbody { display: block; min-width: 0; }
   thead { display: none; }
+
+  tr.group { display: block; margin-top: var(--space-6); }
+  tr.group td { display: block; background: none; border: none; padding: 0 var(--space-2); }
+  tr.group .group-sum { float: none; display: block; }
 
   tr.entry {
     display: grid;

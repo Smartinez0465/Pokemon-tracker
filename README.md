@@ -31,29 +31,94 @@ The site must be served over HTTPS (all of the above are).
 - **iPhone**: open the site in Safari → Share → *Add to Home Screen*.
 - **Android**: open it in Chrome → menu → *Install app* / *Add to Home screen*.
 
+## Adding items: single card or sealed
+
+**Add item** starts by asking whether you're adding a **single card** or a **sealed product**. Nothing else shows until
+you choose, and after that the search, the photo reader and the *Type* list only deal with that kind: sealed shows only
+boxes, ETBs, packs, tins and collections; single card shows only cards. You can switch kind part-way through.
+
+**Inventory** and **Sold** are split into two sections: **Sealed products**, and **Cards · opened & singles** (your stored
+cards). Each heading shows how many items are in it and what they cost, and the Inventory sections also show what they're
+worth when every item in that section has a price. A section only appears when it has something in it. The **All / Sealed /
+Cards** switch next to the tabs shows just one of them.
+
 ## Photo + auto-fill
 
-In **Add item**, tap *Take or choose photo* (on a phone this offers the camera). The app:
+Tap *Take or choose photo* (on a phone this offers the camera). The photo is shrunk and saved with the item (tap a
+thumbnail in the list to view it larger), and the app works out what it is. **What you chose (single card or sealed)
+decides how:**
 
-1. shrinks the photo and saves it with the item (tap a thumbnail in the list to view it larger),
-2. reads the card name and number **on your device** (Tesseract OCR, loaded from a CDN on first use),
-3. looks that up in the free [TCGdex](https://tcgdex.net) database and fills in name, set, card number and type.
+- **Sealed product: matched by how it looks.** Box art is mostly logos and artwork, which text reading can't make sense
+  of, so the photo is compared with pictures instead. `data/sealed-vec.*` holds a small "fingerprint" of every product's
+  official box art, and the app runs the same small vision model (DINOv2-small, about 22 MB, downloaded once from the
+  [Hugging Face](https://huggingface.co/Xenova/dinov2-small) hub through jsDelivr, then cached) on your photo and picks the
+  closest products. It's tried at several zoom levels, so the box doesn't have to fill the frame. A clear winner is filled
+  in; otherwise you get the closest matches to pick from. If the model can't download (for example you're offline the first
+  time), it falls back to reading the words on the box.
+- **Single card: found, then read.** The app finds the card in the photo, crops to it, and reads the name (top) and the set
+  number (bottom, like `4/102`) on your device (Tesseract OCR, loaded from a CDN on first use). The number alone points at
+  the set (card 4 of a set with 102 cards), so it's checked first against the free [TCGdex](https://tcgdex.net) database and
+  the name only has to confirm it. A card is only filled in automatically when the number and name agree; otherwise the best
+  matches are listed. Reading a card takes several seconds, longer on a phone.
 
-It works for **sealed product** too (boxes, ETBs, tins, collections, blisters...). Sealed items have no card
-number, so the app matches the words on the package against a list of known products
-(`data/sealed.json`) and fills in the name, set and type.
+Tips for both: a straight-on, well-lit photo with the product filling most of the frame works best, and a small tilt is
+fine. Photos are never uploaded anywhere. Only the words read off a card are sent to TCGdex.
 
-If it can't read the photo, type a name into **Find card or sealed product** and pick the match, e.g.
-`charizard 4/102` or `30th celebration tech sticker collection`.
+If it isn't sure, type a name into **Find card** / **Find sealed product** and pick the match, e.g. `charizard 4/102` or
+`30th celebration elite trainer box`. Anything you typed yourself is never overwritten by auto-fill.
 
-Card data comes from TCGdex. The sealed list is a snapshot of [TCGCSV](https://tcgcsv.com) (a free mirror of TCGplayer's
-catalog), built by `node tools/build-sealed.mjs`. TCGCSV doesn't allow browsers to read it directly, which is why it's
-a bundled file. A GitHub Action (`.github/workflows/update-sealed.yml`) refreshes it every Monday so new sets show up;
-you can also run it by hand from the repo's **Actions** tab.
-Anything you typed yourself is never overwritten by auto-fill. The bought date defaults to today and can be changed.
+**Keeping the data fresh.** The sealed list and its prices are a snapshot of [TCGCSV](https://tcgcsv.com) (a free mirror of
+TCGplayer's catalog), built by `node tools/build-sealed.mjs`; TCGCSV doesn't allow browsers to read it directly, which is why
+it's a bundled file. The box-art fingerprints are built by `node tools/build-vectors.mjs` (run `npm install` once first; it
+only needs to process new products, and about 250 products with no picture on file can't be matched by photo). A GitHub
+Action (`.github/workflows/update-sealed.yml`) refreshes both every day; you can also run it by hand from the repo's
+**Actions** tab.
 
-Only the words read from the card are sent to TCGdex; the photo itself stays in your browser.
-Both steps need an internet connection. Without one you can still add items by hand.
+Both the photo reader and the card database need an internet connection. Without one you can still add items by hand.
+
+## Searching
+
+Both search boxes (the one at the top of the page and **Find card / Find sealed product** in the add form) understand
+shorthand and different spellings, so these all find *Pitch Black Elite Trainer Box*: `etb`, `E.T.B.`, `e-t-b`,
+`elite-trainer-box`, `pitch-black etb`, `pitchblack elitetrainerbox`. Shorthand understood: `etb` (Elite Trainer Box),
+`pc` (Pokemon Center), `bb` (Booster Bundle), `bbox` (Booster Box), `upc` / `spc` (Ultra / Super Premium Collection).
+The top search also finds an item however you typed it in: an item saved as "30th Celebration ETB" is found by
+`elite trainer box`. Names that really contain a hyphen, like *Porygon-Z*, still work with or without it.
+
+**Finding single cards, including the special ones.** Typing in **Find card** forgives apostrophes, plurals, short forms and
+small typos: `lillies clefairy` finds *Lillie's Clefairy ex*, `hops zacian` finds *Hop's Zacian ex*, `pika` finds Pikachu, and
+`clefary` still finds Clefairy. Every print of the card is listed, newest set first, with its set, number and rarity, so
+the special ones are visible. Add a rarity word to narrow it down:
+
+| Type | Finds |
+|---|---|
+| `sir`, `special illustration rare` | Special Illustration Rare |
+| `ir`, `illustration rare` | Illustration Rare |
+| `hyper rare`, `hr` | Hyper Rare and Mega Hyper Rare |
+| `mega hyper rare`, `mhr` | Mega Hyper Rare only |
+| `alt art`, `alt` | the special art prints: Special Illustration, Illustration, Ultra and Secret Rare |
+| `full art`, `rainbow`, `shiny`, `double rare`, `promo` | those rarities |
+
+So `hops zacian sir` gives just the Special Illustration Rare, and `mega lucario ex mhr` the Mega Hyper Rare. Add a card
+number too if you know it (`mew ex sir 232/091`). TCG Pocket cards (the phone game) are left out.
+
+**Nicknames** like *bubble mew* aren't in any card database, so they live in
+[`data/nicknames.json`](data/nicknames.json): each nickname points at one or more TCGdex card ids. It starts with
+`bubble mew` (Paldean Fates Mew ex SIR) and `moonbreon` (Evolving Skies Umbreon VMAX alt art); add your own lines the same way.
+
+## What your inventory is worth now
+
+The bar above the totals estimates what the inventory in stock would sell for today, next to what you paid for it.
+
+- **Sealed products** use TCGplayer's market price from `data/sealed.json` (refreshed daily, dated in the bar).
+- **Single cards** use TCGplayer's market price from TCGdex, fetched live and kept on the device for 12 hours.
+  When a card has several printings, the plain (non-holo) price is used if there is one.
+- An item is priced when you **pick it from the search results** (the app remembers which product it is). Sealed items you
+  typed in by hand are matched if the name is exactly a product's name. If you change the name afterwards, the link is dropped.
+- **Graded cards aren't priced**: the grade changes the value a lot and there's no free source for graded prices.
+- Anything that can't be priced is counted in the bar ("2 not priced") and left out of the total. To price one, tap *Edit*
+  and pick it from the search results. *Refresh prices* re-fetches everything now.
+- It's an estimate before fees and shipping, using the market price, not a guaranteed sale price.
 
 ## Where your data lives
 

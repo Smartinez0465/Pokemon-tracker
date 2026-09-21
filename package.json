@@ -1,0 +1,10 @@
+{
+  "name": "card-ledger",
+  "private": true,
+  "description": "Card Ledger. The app itself has no build step; these are only for the data-building scripts in tools/.",
+  "type": "module",
+  "devDependencies": {
+    "@huggingface/transformers": "4.3.0",
+    "sharp": "0.35.4"
+  }
+}
