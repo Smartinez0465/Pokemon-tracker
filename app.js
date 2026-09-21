@@ -225,7 +225,8 @@ async function autoRef(item) {
   if (!idx) return "";
   let hits = idx.items.filter((p) => nameKey(p.name) === nameKey(item.name));
   if (hits.length > 1 && item.set) {
-    const sameSet = hits.filter((p) => cleanSetName(p.group).toLowerCase() === item.set.trim().toLowerCase());
+    const want = item.set.trim().toLowerCase();
+    const sameSet = hits.filter((p) => [cleanSetName(p.group), p.setName].some((n) => n.toLowerCase() === want));
     if (sameSet.length) hits = sameSet;
   }
   return hits.length === 1 ? "sealed:" + hits[0].id : "";
@@ -561,7 +562,8 @@ function switchKind(k) {
     lookupToken++;
     found = [];
     pickedId = "";
-    $("cardSearch").value = "";
+    setSearchText("");
+    lastPhoto = null;
     renderResults();
     if (pickedRef) {
       for (const field of ["name", "set", "number"]) { itemForm.elements[field].value = ""; userEdited.delete(field); }
@@ -681,6 +683,13 @@ function setStatus(msg, ok = false) {
   el.classList.toggle("ok", ok);
 }
 
+// Text the app puts in the search box itself (a best guess), so it isn't mistaken for something the person typed.
+let autoSearchText = "";
+function setSearchText(text) {
+  autoSearchText = text;
+  $("cardSearch").value = text;
+}
+
 function resetLookup(item) {
   lookupToken++;
   photoData = item?.photo ?? "";
@@ -690,7 +699,8 @@ function resetLookup(item) {
   pickedId = "";
   pickedRef = item?.ref ?? "";
   pickedName = item?.name ?? "";
-  $("cardSearch").value = "";
+  lastPhoto = null;
+  setSearchText("");
   renderResults();
   setStatus(idleStatus());
   renderPhoto();
@@ -881,11 +891,12 @@ function editDistance(a, b) {
 }
 
 // Does one typed word match any word of a card's name?
-function wordMatches(q, nameWords, lenient) {
+function wordMatches(q, nameWords, lenient, typing = false) {
   const sq = stemWord(q);
   return nameWords.some((w, i) => {
     const sw = stemWord(w);
     if (sw === sq || w === q) return true;
+    if (typing && q.length >= 2 && w.startsWith(q)) return true;                 // still typing: "clef" -> clefairy
     if (q === "mega" && w === "m" && i === 0) return true;                       // older cards: "M Charizard-EX"
     if (q.length === 1 && w === q + "s") return true;                            // "n" -> "N's Zoroark ex"
     if (sq.length >= 4 && sw.startsWith(sq)) return true;                        // "pika" -> pikachu
@@ -937,7 +948,7 @@ async function cardsContaining(word, extra = "") {
   return [];
 }
 
-async function searchCards({ name, number, total, rarities }) {
+async function searchCards({ name, number, total, rarities, typing }) {
   const words = cardWords(name).filter((w) => !CARD_STOP_WORDS.has(w) && (w.length > 1 || w === "n"));
   if (!words.length) return [];
   const key = words.join(" ");
@@ -950,10 +961,11 @@ async function searchCards({ name, number, total, rarities }) {
   // TCG Pocket sets (ids like "A3a-002") are a different game
   brief = brief.filter((c) => !/^[A-Z]/.test(c.id));
   const nameWordsOf = (c) => cardWords(c.name);
-  let pool = brief.filter((c) => words.every((q) => wordMatches(q, nameWordsOf(c), false)));
+  const unfinished = (i) => !!typing && i === words.length - 1; // the word still being typed matches anything starting with it
+  let pool = brief.filter((c) => words.every((q, i) => wordMatches(q, nameWordsOf(c), false, unfinished(i))));
   if (!pool.length) { // nothing fits every word: allow short forms, and (with 3+ words) one word to be off
     pool = brief.filter((c) => {
-      const missed = words.filter((q) => !wordMatches(q, nameWordsOf(c), true)).length;
+      const missed = words.filter((q, i) => !wordMatches(q, nameWordsOf(c), true, unfinished(i))).length;
       return missed === 0 || (words.length > 2 && missed === 1);
     });
   }
@@ -977,8 +989,10 @@ async function searchCards({ name, number, total, rarities }) {
   const order = new Map((await allSets()).map((s, i) => [s.id, i]));
   const setOf = (c) => c.id.slice(0, c.id.lastIndexOf("-"));
   const extraWords = (c) => Math.max(0, cardWords(c.name).length - words.length);
+  // cards where every word is a whole word come before cards that only fit because the last word is unfinished
+  const completions = (c) => (typing && words.length && !wordMatches(words[words.length - 1], nameWordsOf(c), false, false) ? 1 : 0);
   pool = pool.slice().sort((a, b) =>
-    extraWords(a) - extraWords(b) || (order.get(setOf(b)) ?? -1) - (order.get(setOf(a)) ?? -1)).slice(0, 30);
+    completions(a) - completions(b) || extraWords(a) - extraWords(b) || (order.get(setOf(b)) ?? -1) - (order.get(setOf(a)) ?? -1)).slice(0, 30);
 
   const details = await Promise.all(pool.map((c) =>
     getJsonCached(`${TCGDEX}/cards/${encodeURIComponent(c.id)}`).catch(() => null)));
@@ -994,13 +1008,15 @@ function loadNicknames() {
     .catch(() => ({})));
 }
 
-async function nicknameCards(name) {
+async function nicknameCards(name, typing = false) {
   const key = cardKey(name);
   if (!key) return [];
   const hits = [];
   for (const [nick, entry] of Object.entries(await loadNicknames())) {
     const nk = cardKey(nick);
-    if (nk && !nick.startsWith("_") && (` ${key} `).includes(` ${nk} `)) hits.push({ nick, ids: entry.ids || [] });
+    if (!nk || nick.startsWith("_")) continue;
+    // typed in full ("bubble mew sir"), or still being typed ("bubble m", "moonb")
+    if ((` ${key} `).includes(` ${nk} `) || (typing && key.length >= 3 && nk.startsWith(key))) hits.push({ nick, ids: entry.ids || [] });
   }
   const found = [];
   for (const { nick, ids } of hits) {
@@ -1289,15 +1305,37 @@ function splitGlued(token, df, depth = 0) {
 
 const sameWord = (a, b) => a === b || (a.length >= 5 && b.length >= 5 && (a.startsWith(b) || b.startsWith(a)));
 
+// Sets released as a pair. Their shared products ("Unova Poster Collection") are filed under just one of the two,
+// but belong to both, so they should be found and labelled under either name.
+const TWIN_SETS = [["Black Bolt", "White Flare"]];
+
+// The set a product is sold with: its display name, and the words that name adds to what the product is.
+function describeSet(group, nameTokens) {
+  const set = cleanSetName(group);
+  const own = tokenize(set);
+  for (const pair of TWIN_SETS) {
+    if (!pair.some((p) => p.toLowerCase() === set.toLowerCase())) continue;
+    const mentionsOwnSet = own.every((t) => nameTokens.includes(t));
+    if (!mentionsOwnSet) return { setName: pair.join(" / "), setTokens: pair.flatMap((p) => tokenize(p)) };
+  }
+  return { setName: set, setTokens: own };
+}
+
 function buildSealedIndex(data) {
   market.sealedDate = data.generated || "";
-  const items = data.items.map(([id, gi, name, price]) => ({
-    id, name, price, group: data.groups[gi][1], tokens: [...new Set(tokenize(name))],
-  }));
+  const items = data.items.map(([id, gi, name, price]) => {
+    const group = data.groups[gi][1];
+    const tokens = [...new Set(tokenize(name))];
+    const { setName, setTokens } = describeSet(group, tokens);
+    return { id, name, price, group, tokens, setName, setTokens, full: [...new Set([...tokens, ...setTokens])] };
+  });
   const df = new Map();
   for (const it of items) for (const t of it.tokens) df.set(t, (df.get(t) || 0) + 1);
   const weight = (t) => Math.log(1 + items.length / (1 + (df.get(t) || 0)));
-  for (const it of items) it.total = it.tokens.reduce((s, t) => s + weight(t), 0);
+  for (const it of items) {
+    it.total = it.tokens.reduce((s, t) => s + weight(t), 0);
+    it.fullTotal = it.full.reduce((s, t) => s + weight(t), 0);
+  }
   return { items, weight, df, byId: new Map(items.map((it) => [it.id, it])) };
 }
 
@@ -1322,7 +1360,7 @@ function sealedResult(it, score) {
     id: "p" + it.id,
     ref: "sealed:" + it.id,
     name: it.name,
-    setName: cleanSetName(it.group),
+    setName: it.setName,
     printed: "",
     image: `https://tcgplayer-cdn.tcgplayer.com/product/${it.id}_200w.jpg`,
     type: guessSealedType(it.name),
@@ -1333,33 +1371,49 @@ function sealedResult(it, score) {
 
 // Typed search: how much of what you typed does the product name cover.
 // Photo search (query.ocrText): how much of the product name appears in the text read off the box.
-async function searchSealed(query) {
+async function searchSealed(query, limit = 12) {
   const idx = await loadSealed();
   if (!idx) return [];
   const ocr = !!query.ocrText;
   let qTokens = [...new Set(tokenize(ocr ? query.ocrText : query.name))];
   if (!ocr) qTokens = [...new Set(qTokens.flatMap((t) => splitGlued(t, idx.df)))]; // typed "pitchblack" -> pitch black
-  if (!qTokens.length) return [];
-  const qTotal = qTokens.reduce((s, t) => s + idx.weight(t), 0);
+  // While someone is still typing, the last word may be unfinished ("30th st"): it matches anything that starts with it.
+  const qList = qTokens.map((t) => ({ t, weight: idx.weight(t), typing: false }));
+  if (!ocr && query.typing) {
+    const last = normalizeSearch(query.name).split(/[^a-z0-9]+/).filter(Boolean).pop() || "";
+    const slot = qList.find((q) => q.t === last) || (last && !STOP_WORDS.has(last) && qList.length ? qList[qList.push({ t: last, weight: 0, typing: false }) - 1] : null);
+    if (slot) {
+      slot.typing = true;
+      // no more telling than the commonest word it could turn into, so a product that only fits the unfinished
+      // word can't outrank one that fits the words already typed
+      const ends = [...idx.df.keys()].filter((w) => w.startsWith(last));
+      slot.weight = ends.length ? Math.min(...ends.map((w) => idx.weight(w))) : idx.weight(last);
+    }
+  }
+  if (!qList.length) return [];
+  const matches = (q, t) => sameWord(q.t, t) || (q.typing && t.startsWith(q.t));
+  const qTotal = qList.reduce((s, q) => s + q.weight, 0);
 
   const scored = [];
   for (const it of idx.items) {
+    // Typed search treats the set name as part of the product ("black bolt poster collection"); text read off a box doesn't.
+    const toks = ocr ? it.tokens : it.full;
     let matched = 0, count = 0, covered = 0;
-    for (const t of it.tokens) {
-      if (qTokens.some((q) => sameWord(q, t))) { matched += idx.weight(t); count++; }
+    for (const t of toks) {
+      if (qList.some((q) => matches(q, t))) { matched += idx.weight(t); count++; }
     }
     if (!count) continue;
-    for (const q of qTokens) {
-      if (it.tokens.some((t) => sameWord(q, t))) covered += idx.weight(q);
+    for (const q of qList) {
+      if (toks.some((t) => matches(q, t))) covered += q.weight;
     }
-    const precision = matched / it.total;
+    const precision = matched / (ocr ? it.total : it.fullTotal);
     const coverage = covered / qTotal;
     if (ocr ? !(count >= 2 && precision >= 0.5) : coverage < 0.5) continue;
-    scored.push({ it, matched, score: ocr ? precision : 0.75 * coverage + 0.25 * precision });
+    scored.push({ it, matched, coverage, score: ocr ? precision : 0.75 * coverage + 0.25 * precision });
   }
   scored.sort((a, b) => b.score - a.score); // stable: ties keep newest set first
 
-  const results = scored.slice(0, ocr ? 6 : 8).map(({ it, score }) => sealedResult(it, score));
+  const results = scored.slice(0, ocr ? 6 : limit).map(({ it, score, coverage }) => ({ ...sealedResult(it, score), cover: coverage }));
   // Only treat a photo match as certain when it's a near-complete, distinctive name with a clear lead.
   if (ocr && scored.length) {
     const [top, next] = scored;
@@ -1384,7 +1438,8 @@ const VISION = {
   model: "Xenova/dinov2-small",
   dtype: "uint8",
   size: 224,
-  crops: [0.9, 0.75, 0.6, 0.5, 0.4],
+  views: [0.9, 0.75, 0.6, 0.5, 0.4],
+  hintWeight: 0.15, // how much a name typed before the photo can lift matching products
   sure: { score: 0.8, margin: 0.05 }, // how close, and how far ahead of the runner-up, counts as certain (tuned on test photos: no wrong auto-fills)
 };
 
@@ -1422,17 +1477,27 @@ function loadVectors() {
   })().catch((err) => { vectorsLoading = null; throw err; }));
 }
 
-// A centred square of the photo (frac = share of its shorter side), scaled to the model's input size.
-// Must stay in step with how tools/build-vectors.mjs prepares product pictures (square, no stretching).
-function squareOf(photo, frac) {
-  const side = Math.round(Math.min(photo.width, photo.height) * frac);
+// A view of the photo for the model: a centred square (spec = share of the photo's shorter side) or a portrait or
+// landscape rectangle (spec = [share of the photo's height, width / height]), fitted into the model's square input
+// with gray padding. Must stay in step with how tools/build-vectors.mjs prepares product pictures (fit inside a
+// square, never stretched).
+function viewOf(photo, spec) {
+  let w, h;
+  if (Array.isArray(spec)) {
+    h = photo.height * spec[0];
+    w = h * spec[1];
+    if (w > photo.width) { w = photo.width; h = w / spec[1]; }
+  } else {
+    w = h = Math.min(photo.width, photo.height) * spec;
+  }
+  const S = VISION.size, k = Math.min(S / w, S / h);
   const c = document.createElement("canvas");
-  c.width = c.height = VISION.size;
+  c.width = c.height = S;
   const x = c.getContext("2d", { willReadFrequently: true });
   x.fillStyle = "rgb(128,128,128)";
-  x.fillRect(0, 0, VISION.size, VISION.size);
+  x.fillRect(0, 0, S, S);
   x.imageSmoothingQuality = "high";
-  x.drawImage(photo, Math.round((photo.width - side) / 2), Math.round((photo.height - side) / 2), side, side, 0, 0, VISION.size, VISION.size);
+  x.drawImage(photo, (photo.width - w) / 2, (photo.height - h) / 2, w, h, (S - w * k) / 2, (S - h * k) / 2, w * k, h * k);
   return c;
 }
 
@@ -1447,13 +1512,11 @@ async function fingerprint(vision, square) {
   return cls.map((v) => v / norm);
 }
 
-// Returns the closest products (best first), each with a cosine `score`, or throws if the matcher can't run.
-async function matchSealedPhoto(photo, onProgress) {
-  const [vision, vecs, idx] = await Promise.all([loadVision(onProgress), loadVectors(), loadSealed()]);
-  if (!idx) throw new Error("the product list isn't available");
-  const queries = [];
-  for (const frac of VISION.crops) queries.push(await fingerprint(vision, squareOf(photo, frac)));
+// The latest photo's fingerprints, kept so that typing a name afterwards can be judged against how the photo looks.
+let lastPhoto = null;
 
+// How alike the photo is to each product's box art (best of its views), in the same order as vecs.ids.
+function similarities(queries, vecs) {
   const { ids, dim, scale, rows } = vecs;
   const unit = scale / 127;
   const best = new Float32Array(ids.length).fill(-1);
@@ -1465,30 +1528,63 @@ async function matchSealedPhoto(photo, onProgress) {
       if (s > best[i]) best[i] = s;
     }
   }
-  const order = [...best.keys()].sort((a, b) => best[b] - best[a]);
+  return best;
+}
+
+// Returns the closest products (best first), each with a `score`, or throws if the matcher can't run.
+// `hint` is anything typed in the search box before the photo: products whose names fit it move up.
+async function matchSealedPhoto(photo, onProgress, hint = "") {
+  const [vision, vecs, idx] = await Promise.all([loadVision(onProgress), loadVectors(), loadSealed()]);
+  if (!idx) throw new Error("the product list isn't available");
+  const queries = [];
+  for (const spec of VISION.views) queries.push(await fingerprint(vision, viewOf(photo, spec)));
+  lastPhoto = { queries };
+
+  const look = similarities(queries, vecs);
+  const typed = new Map();
+  if (hint) for (const r of await searchSealed({ name: hint, raw: hint }, 40)) typed.set(r.ref, r.cover);
+  const total = look.map((s, i) => s + VISION.hintWeight * (typed.get("sealed:" + vecs.ids[i]) || 0));
+
+  const order = [...total.keys()].sort((a, b) => total[b] - total[a]);
   const results = [];
   for (const i of order) {
-    const it = idx.byId.get(ids[i]);
-    if (it) results.push(sealedResult(it, best[i]));
-    if (results.length === 8) break;
+    const it = idx.byId.get(vecs.ids[i]);
+    if (it) results.push({ ...sealedResult(it, total[i]), look: look[i] });
+    if (results.length === 12) break;
   }
   if (results.length) {
     const lead = results[0].score - (results[1]?.score ?? 0);
-    results[0].strong = results[0].score >= VISION.sure.score && lead >= VISION.sure.margin;
+    results[0].strong = results[0].look >= VISION.sure.score && lead >= VISION.sure.margin;
   }
   return results;
 }
 
+// Typed search for a sealed product. If a photo was just taken, the products that fit the words are put in order
+// of how much they look like the photo, so the one you're holding comes first.
+async function searchSealedRanked(query) {
+  if (!lastPhoto || query.ocrText) return searchSealed(query);
+  const [candidates, vecs] = await Promise.all([searchSealed(query, 40), loadVectors()]);
+  if (candidates.length < 2) return candidates.slice(0, 12);
+  const look = similarities(lastPhoto.queries, vecs);
+  const at = new Map(vecs.ids.map((id, i) => [id, i]));
+  const scored = candidates.map((c) => {
+    const i = at.get(Number(c.ref.slice(7)));
+    const seen = i === undefined ? 0 : look[i];
+    return { ...c, look: seen, score: 0.5 * c.cover + seen }; // how well it fits the words, plus how much it looks like the photo
+  });
+  return scored.sort((a, b) => b.score - a.score).slice(0, 12);
+}
 
 /* -- parsing what was typed / how results are shown and applied -- */
 
 // "mew ex sir 232/091" -> the name words, the number, and any rarity words ("sir", "alt art", "mega hyper rare"...)
 function parseQuery(text) {
   const t = text.trim();
-  let query = { name: t, raw: t };
+  // `typing`: no space after the last word yet, so it may be unfinished ("clef" on its way to "clefairy")
+  let query = { name: t, raw: t, typing: !/\s$/.test(text) };
   let m = t.match(/^(.*\S)[\s-]+([A-Za-z]{0,3}\d{1,3})\s*\/\s*([A-Za-z]{0,3}\d{2,3})$/); // "charizard 4/102" or "charizard-4/102"
-  if (m) query = { name: m[1], number: m[2], total: m[3], raw: t };
-  else if ((m = t.match(/^(.*\S)\s+(\d{1,3})$/))) query = { name: m[1], number: m[2], raw: t };  // "charizard 4"
+  if (m) query = { name: m[1], number: m[2], total: m[3], raw: t, typing: false };
+  else if ((m = t.match(/^(.*\S)\s+(\d{1,3})$/))) query = { name: m[1], number: m[2], raw: t, typing: false };  // "charizard 4"
   const { rest, rarities } = extractRarities(query.name);
   return rarities.length ? { ...query, name: rest, rarities } : query;
 }
@@ -1554,12 +1650,13 @@ function showMatches(list, { auto, sealed, failed, query = {}, vision }) {
   const pick = sealed ? (top.strong ? top : null) : (top.sure ? top : null);
   if (auto && pick) {
     applyCard(pick, false);
-    if (sealed) $("cardSearch").value = pick.name; // replace any junk words read off the box
+    if (sealed) setSearchText(pick.name); // replace any junk words read off the box
     setStatus(`Filled in from the photo: ${describe(pick)}. Wrong one? Pick another below.`, true);
   } else {
     renderResults();
+    if (auto && sealed && vision) setSearchText(top.name); // not sure, so show the best guess and let the person refine it
     setStatus(auto
-      ? `${vision ? "Here are the closest matches to the photo" : "I read the photo but wasn't sure what it is"}. Pick yours below, or type a name in ${sealed ? "Find sealed product" : "Find card"}.`
+      ? `${vision ? "Here are the closest matches to the photo, best guess first" : "I read the photo but wasn't sure what it is"}. Pick yours below, or type a name in ${sealed ? "Find sealed product" : "Find card"}.`
       : "Pick the match below.");
   }
 }
@@ -1571,9 +1668,9 @@ async function lookup(query, token, auto) {
   let list = [], failed = false;
 
   if (sealed) {
-    list = await searchSealed(query).catch(() => []); // local, so works offline
+    list = await searchSealedRanked(query).catch(() => []); // local, so works offline
   } else if (query.name) {
-    const nicknamed = await nicknameCards(query.name).catch(() => []); // "bubble mew" and the like
+    const nicknamed = await nicknameCards(query.name, query.typing).catch(() => []); // "bubble mew" and the like
     try {
       const searched = await searchCards(query);
       list = [...nicknamed, ...searched.filter((c) => !nicknamed.some((n) => n.id === c.id))];
@@ -1595,11 +1692,13 @@ async function identify(src, token) {
     // Boxes are matched by how they look. If that can't run (say, no connection for the first download),
     // fall back to reading the words on the box.
     let matches = null;
+    const typed = $("cardSearch").value.trim();
+    const hint = typed.length >= 3 && typed !== autoSearchText ? typed : ""; // something the person typed, not our own guess
     try {
       setStatus("Getting the image matcher ready… (first time only, about 22 MB)");
       matches = await matchSealedPhoto(canvas, (pct) => {
         if (token === lookupToken) setStatus(`Getting the image matcher ready… ${pct}% (first time only, about 22 MB)`);
-      });
+      }, hint);
       if (token === lookupToken) setStatus("Comparing your photo with the known products…");
     } catch (err) {
       console.warn("image matching unavailable:", err);
@@ -1633,7 +1732,7 @@ async function identify(src, token) {
       return;
     }
     const printed = read.num ? `${read.num.local}/${read.num.total}` : "";
-    $("cardSearch").value = [read.name, printed].filter(Boolean).join(" ");
+    setSearchText([read.name, printed].filter(Boolean).join(" "));
     showMatches(read.results, { auto: true, sealed: false, failed: read.failed, query: { name: read.name } });
     return;
   }
@@ -1655,7 +1754,7 @@ async function identify(src, token) {
 
 $("photoBtn").addEventListener("click", () => $("photoFile").click());
 $("photoThumb").addEventListener("click", () => (photoData ? showPhoto(photoData) : $("photoFile").click()));
-$("photoRemove").addEventListener("click", () => { photoData = ""; photoIsOfficial = false; renderPhoto(); });
+$("photoRemove").addEventListener("click", () => { photoData = ""; photoIsOfficial = false; lastPhoto = null; renderPhoto(); });
 $("photoFile").addEventListener("change", (e) => {
   const file = e.target.files[0];
   e.target.value = "";
@@ -1663,22 +1762,24 @@ $("photoFile").addEventListener("change", (e) => {
 });
 $("photoDialog").addEventListener("click", () => $("photoDialog").close());
 
+// Sealed products are searched on the device, so suggestions can start sooner and come faster than card lookups.
+const minSearchLength = () => (addKind === "sealed" ? 2 : 3);
 let searchTimer;
 function searchNow() {
   clearTimeout(searchTimer);
   const text = $("cardSearch").value;
-  if (text.trim().length < 3) return;
-  lookup(addKind === "sealed" ? { name: text.trim(), raw: text.trim() } : parseQuery(text), ++lookupToken, false);
+  if (text.trim().length < minSearchLength()) return;
+  lookup(addKind === "sealed" ? { name: text.trim(), raw: text.trim(), typing: !/\s$/.test(text) } : parseQuery(text), ++lookupToken, false);
 }
 $("cardSearch").addEventListener("input", () => {
   clearTimeout(searchTimer);
-  if ($("cardSearch").value.trim().length < 3) {
+  if ($("cardSearch").value.trim().length < minSearchLength()) {
     lookupToken++;
     found = [];
     renderResults();
     return;
   }
-  searchTimer = setTimeout(searchNow, 450);
+  searchTimer = setTimeout(searchNow, addKind === "sealed" ? 150 : 450);
 });
 $("cardSearch").addEventListener("keydown", (e) => {
   if (e.key === "Enter") { e.preventDefault(); searchNow(); }

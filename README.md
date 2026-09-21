@@ -53,8 +53,10 @@ decides how:**
   official box art, and the app runs the same small vision model (DINOv2-small, about 22 MB, downloaded once from the
   [Hugging Face](https://huggingface.co/Xenova/dinov2-small) hub through jsDelivr, then cached) on your photo and picks the
   closest products. It's tried at several zoom levels, so the box doesn't have to fill the frame. A clear winner is filled
-  in; otherwise you get the closest matches to pick from. If the model can't download (for example you're offline the first
-  time), it falls back to reading the words on the box.
+  in; otherwise you get up to 12 close matches, best guess first, and the best guess is put in the search box. **The photo
+  and the search box work together:** words typed before the photo lift the products that fit them, and words typed after it
+  put the matching products in order of how much they look like your photo (removing the photo forgets it). If the model
+  can't download (for example you're offline the first time), it falls back to reading the words on the box.
 - **Single card: found, then read.** The app finds the card in the photo, crops to it, and reads the name (top) and the set
   number (bottom, like `4/102`) on your device (Tesseract OCR, loaded from a CDN on first use). The number alone points at
   the set (card 4 of a set with 102 cards), so it's checked first against the free [TCGdex](https://tcgdex.net) database and
@@ -84,6 +86,15 @@ shorthand and different spellings, so these all find *Pitch Black Elite Trainer 
 `pc` (Pokemon Center), `bb` (Booster Bundle), `bbox` (Booster Box), `upc` / `spc` (Ultra / Super Premium Collection).
 The top search also finds an item however you typed it in: an item saved as "30th Celebration ETB" is found by
 `elite trainer box`. Names that really contain a hyphen, like *Porygon-Z*, still work with or without it.
+
+**Suggestions appear as you type.** The word you're still typing matches anything that starts with it, so `30th st` already
+lists the 30th Celebration Tech Sticker products and `pitch bl` lists Pitch Black products, without finishing the words.
+Sealed suggestions start at 2 characters and update almost instantly; card and nickname suggestions work the same way
+(`lillies clef`, `hops zac`, `moonb`). Put a space after the last word to say it's finished.
+
+The set name counts when you look for a sealed product, so `black bolt poster collection` finds *Unova Poster Collection*.
+Black Bolt and White Flare share some products (the "Unova ..." ones, listed under just one of the two), so those are found
+under either name and labelled *Black Bolt / White Flare*.
 
 **Finding single cards, including the special ones.** Typing in **Find card** forgives apostrophes, plurals, short forms and
 small typos: `lillies clefairy` finds *Lillie's Clefairy ex*, `hops zacian` finds *Hop's Zacian ex*, `pika` finds Pikachu, and
