@@ -1,7 +1,7 @@
 "use strict";
 
 // Bump CACHE when you want every device to drop old cached files.
-const CACHE = "pokemon-tracker-v14";
+const CACHE = "pokemon-tracker-v15";
 const ASSETS = [
   "./",
   "index.html",
@@ -20,7 +20,9 @@ const ASSETS = [
 ];
 
 self.addEventListener("install", (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS)).then(() => self.skipWaiting()));
+  // "reload" skips the browser's own copy (GitHub Pages lets browsers reuse files for 10 minutes), so a new version
+  // never saves stale files
+  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS.map((a) => new Request(a, { cache: "reload" })))).then(() => self.skipWaiting()));
 });
 
 self.addEventListener("activate", (e) => {
@@ -31,13 +33,14 @@ self.addEventListener("activate", (e) => {
   );
 });
 
-// Network first (so updates show up), falling back to the cache when offline.
+// Network first (so updates show up), falling back to the cache when offline. "no-cache" makes the browser check
+// with the server every time instead of reusing a copy it was told was good for 10 minutes.
 self.addEventListener("fetch", (e) => {
   const url = new URL(e.request.url);
   if (e.request.method !== "GET" || url.origin !== location.origin) return;
 
   e.respondWith(
-    fetch(e.request)
+    fetch(e.request, { cache: "no-cache" })
       .then((res) => {
         if (res.ok) {
           const copy = res.clone();

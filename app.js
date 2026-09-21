@@ -1881,7 +1881,27 @@ $("importFile").addEventListener("change", async (e) => {
 
 // Service workers only run over http(s), not when index.html is opened straight from disk.
 if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
-  window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
+  const sw = navigator.serviceWorker;
+  let controlled = !!sw.controller; // false on the very first visit: the first takeover is an install, not an update
+  let reloadWhenIdle = false;
+
+  // A new version has taken over: reload to run it. If a form is open, wait until it's closed so nothing typed is lost.
+  sw.addEventListener("controllerchange", () => {
+    if (!controlled) { controlled = true; return; }
+    if (document.querySelector("dialog[open]")) reloadWhenIdle = true;
+    else location.reload();
+  });
+  document.addEventListener("close", () => { if (reloadWhenIdle) location.reload(); }, true); // a dialog closed
+
+  // Phones keep an installed app alive in the background and resume it without loading the page again, so ask for
+  // a newer version on start and every time the app comes back to the front.
+  window.addEventListener("load", () => {
+    sw.register("sw.js").then((reg) => {
+      const check = () => reg.update().catch(() => {});
+      document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") check(); });
+      setInterval(check, 30 * 60 * 1000);
+    }).catch(() => {});
+  });
 }
 // Ask the browser not to evict our saved data when storage is low.
 if (navigator.storage?.persist) navigator.storage.persist().catch(() => {});
