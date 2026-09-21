@@ -1879,6 +1879,11 @@ $("importFile").addEventListener("change", async (e) => {
 
 /* ---------- installable / offline (PWA) ---------- */
 
+// iPhone Safari can still pinch-zoom despite the viewport setting, so stop its pinch gesture directly.
+for (const gesture of ["gesturestart", "gesturechange", "gestureend"]) {
+  document.addEventListener(gesture, (e) => e.preventDefault());
+}
+
 // Service workers only run over http(s), not when index.html is opened straight from disk.
 if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
   const sw = navigator.serviceWorker;

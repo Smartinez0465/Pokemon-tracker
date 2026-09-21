@@ -49,6 +49,9 @@
 
 * { box-sizing: border-box; }
 
+/* no pinch-zoom or double-tap zoom: scrolling still works, and 16px fields already stop the focus zoom on iPhone */
+html, body, * { touch-action: pan-x pan-y; }
+
 body {
   margin: 0;
   background: var(--color-bg);

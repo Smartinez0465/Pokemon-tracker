@@ -1,7 +1,7 @@
 "use strict";
 
 // Bump CACHE when you want every device to drop old cached files.
-const CACHE = "pokemon-tracker-v15";
+const CACHE = "pokemon-tracker-v16";
 const ASSETS = [
   "./",
   "index.html",
