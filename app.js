@@ -26,12 +26,17 @@ const ui = { search: "", tab: "inventory", show: "all", sort: "newest", expanded
 /* ---------- storage ---------- */
 
 function loadJson(key) {
+  let raw = null;
   try {
-    const parsed = JSON.parse(localStorage.getItem(key) || "[]");
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
+    raw = localStorage.getItem(key);
+    const parsed = JSON.parse(raw || "[]");
+    if (Array.isArray(parsed)) return parsed;
+  } catch { /* fall through to the backup below */ }
+  // Saved data exists but can't be read. The next save would overwrite it with an empty list, so keep a copy first.
+  if (raw) {
+    try { if (localStorage.getItem(key + "-corrupt") === null) localStorage.setItem(key + "-corrupt", raw); } catch { /* storage full */ }
   }
+  return [];
 }
 
 // `quiet` is for changes that arrived *from* the cloud, which shouldn't trigger another upload.
