@@ -26,12 +26,15 @@ const ui = { search: "", tab: "inventory", show: "all", sort: "newest", expanded
 /* ---------- storage ---------- */
 
 function loadJson(key) {
+  let raw = null;
   try {
-    const parsed = JSON.parse(localStorage.getItem(key) || "[]");
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
+    raw = localStorage.getItem(key);
+    const parsed = JSON.parse(raw || "[]");
+    if (Array.isArray(parsed)) return parsed;
+  } catch { /* fall through to the safety copy below */ }
+  // Unreadable saved data: keep a copy before the next save replaces it with an empty list.
+  if (raw) { try { localStorage.setItem(key + ".corrupt", raw); } catch { /* storage full: nothing more to do */ } }
+  return [];
 }
 
 // `quiet` is for changes that arrived *from* the cloud, which shouldn't trigger another upload.
