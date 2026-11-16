@@ -26,10 +26,16 @@ const ui = { search: "", tab: "inventory", show: "all", sort: "newest", expanded
 /* ---------- storage ---------- */
 
 function loadJson(key) {
+  let raw = null;
   try {
-    const parsed = JSON.parse(localStorage.getItem(key) || "[]");
-    return Array.isArray(parsed) ? parsed : [];
+    raw = localStorage.getItem(key);
+    const parsed = JSON.parse(raw || "[]");
+    if (!Array.isArray(parsed)) throw new Error("not a list");
+    // drop junk entries (null, numbers...) and make sure every item has a sales list, so one bad entry can't break the whole page
+    return parsed.filter((x) => x && typeof x === "object").map((x) => (key === STORAGE_KEY && !Array.isArray(x.sales) ? { ...x, sales: [] } : x));
   } catch {
+    // Unreadable saved data: keep a copy before the next save replaces it, so nothing is silently lost.
+    try { if (raw) localStorage.setItem(key + "-corrupt-backup", raw); } catch { /* storage full: nothing more we can do */ }
     return [];
   }
 }
@@ -62,7 +68,7 @@ function normalizeItem(i) {
     number: i.number || "",
     photo: okPhoto(i.photo) ? i.photo : "",
     qty: Number(i.qty) || 1,
-    unitCost: Number(i.unitCost) || 0,
+    unitCost: Math.max(0, Number(i.unitCost) || 0),
     buyDate: i.buyDate || today(),
     boughtFrom: i.boughtFrom || "",
     notes: i.notes || "",
@@ -71,9 +77,9 @@ function normalizeItem(i) {
     sales: (Array.isArray(i.sales) ? i.sales : []).map((s) => ({
       id: s.id || uid(),
       date: s.date || today(),
-      qty: Number(s.qty) || 0,
-      unitPrice: Number(s.unitPrice) || 0,
-      fees: Number(s.fees) || 0,
+      qty: Math.max(0, Number(s.qty) || 0),
+      unitPrice: Math.max(0, Number(s.unitPrice) || 0),
+      fees: Math.max(0, Number(s.fees) || 0),
       platform: s.platform || "",
     })),
   };
