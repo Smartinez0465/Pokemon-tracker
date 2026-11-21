@@ -19,19 +19,22 @@ const STORAGE_KEY = "pokemon-inventory-v1";
  * Deleting an item leaves a tombstone { id, updatedAt } so other devices learn it was deleted.
  */
 const DELETED_KEY = "card-ledger-deleted";
-let items = loadJson(STORAGE_KEY);
+let items = [];  // loaded and cleaned just before the first render (normalizeItem needs helpers defined further down)
 let tombstones = loadJson(DELETED_KEY);
 const ui = { search: "", tab: "inventory", show: "all", sort: "newest", expanded: new Set() }; // show: all | sealed | single
 
 /* ---------- storage ---------- */
 
 function loadJson(key) {
+  let raw = null;
   try {
-    const parsed = JSON.parse(localStorage.getItem(key) || "[]");
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
+    raw = localStorage.getItem(key);
+    const parsed = JSON.parse(raw || "[]");
+    if (Array.isArray(parsed)) return parsed;
+  } catch { /* fall through to the safety copy below */ }
+  // Unreadable saved data: keep a copy before the next save replaces it with an empty list.
+  try { if (raw) localStorage.setItem(`${key}-corrupt-backup`, raw); } catch { /* storage full: nothing more to do */ }
+  return [];
 }
 
 // `quiet` is for changes that arrived *from* the cloud, which shouldn't trigger another upload.
@@ -2012,4 +2015,7 @@ if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
 // Ask the browser not to evict our saved data when storage is low.
 if (navigator.storage?.persist) navigator.storage.persist().catch(() => {});
 
+// Saved data from an older version or a damaged file may lack fields; clean it so one bad entry can't break the app.
+items = loadJson(STORAGE_KEY).filter((i) => i && typeof i === "object").map(normalizeItem);
+tombstones = tombstones.filter((t) => t && t.id);
 render();
