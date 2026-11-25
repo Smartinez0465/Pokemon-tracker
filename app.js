@@ -30,6 +30,11 @@ function loadJson(key) {
     const parsed = JSON.parse(localStorage.getItem(key) || "[]");
     return Array.isArray(parsed) ? parsed : [];
   } catch {
+    // Unreadable saved data: keep a copy of the raw text so the next save can't silently destroy it.
+    try {
+      const raw = localStorage.getItem(key);
+      if (raw && !localStorage.getItem(key + "-corrupt")) localStorage.setItem(key + "-corrupt", raw);
+    } catch { /* nothing more we can do */ }
     return [];
   }
 }
